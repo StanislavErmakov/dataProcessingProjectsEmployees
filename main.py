@@ -1,5 +1,7 @@
 from getpass import getpass
 from mysql.connector import connect, Error
+import pandas as pd
+import numpy as np
 
 
 def create_connection(db_hostport, db_user, db_password, db_name):
@@ -74,22 +76,31 @@ def group_id(con, group) -> int:
 print(group_id(con, "ТКЗ ИЦ СПБ"))
 
 
-def list_employees(con, group) -> list:
-    # "SELECT COUNT(users.lastname) FROM users JOIN groups_users ON users.id = groups_users.user_id WHERE groups_users.group_id = 115 ORDER BY users.lastname"
+def employees(con, group) -> list:
+    """Функция получения списка всех работающих и неработающих сотрудников"""
+
+
+    def query_list_empl(status):
+        return f"""SELECT u.lastname, u.firstname, u.id FROM users AS u JOIN groups_users AS gr ON u.id = gr.user_id 
+    WHERE gr.group_id = {group_id(con, group)} AND u.status = {status} ORDER BY u.lastname"""
+
     
-    query = f"""SELECT u.lastname, u.firstname, u.id FROM users AS u JOIN groups_users AS gr ON u.id = gr.user_id 
-    WHERE gr.group_id = {group_id(con, group)} ORDER BY u.lastname""" #AND u.status = 1
     cursor = con.cursor()
-    cursor.execute(query)
-    result = cursor.fetchall()
+    query1 =  query_list_empl(1)
+    cursor.execute(query1)
+    working_employees = cursor.fetchall()
+    query3 =  query_list_empl(3)
+    cursor.execute(query3)
+    not_working_employees = cursor.fetchall()
+    cursor.close()
+    result = working_employees + not_working_employees
     # with open("users_TKZ_IC_SPb.txt", "w") as f:
     #     for res in result:
     #         print(*res, file=f)
-    cursor.close()
     return result
 
 
-print(*list_employees(con, "ТКЗ ИЦ СПБ"))
+#print(*employees(con, "ТКЗ ИЦ СПБ"))
 
 def custom_field_id(con, custom_field_name) -> int:
     cursor = con.cursor()
@@ -103,9 +114,45 @@ def custom_field_id(con, custom_field_name) -> int:
         number = result[0][0]
         return int(number)
 
-print(custom_field_id(con, "Дата трудоустройства"))
-print(custom_field_id(con, "Ставка"))
-print(custom_field_id(con, "День рождения"))
+year = 2024
+months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+
+def create_data_finance_employees(employees):
+    list_employees = list(map(lambda x: f'{x[0]} {x[1]}', employees))
+    count_employees = len(list_employees)
+    columns = ['Сотрудник']
+    for month in months:
+        for fin in ["Зарплата", "Премия"]:
+            columns.append(f'{month} {fin}')
+    finance_employees = []
+    for i in range(count_employees):
+        finance_employees.append([list_employees[i]])
+        finance_employees[i].extend([None for _ in range(24)])
+    data_finance_employees = pd.DataFrame(finance_employees, columns=columns, index=[i for i in range(1, count_employees+1)])
+    return data_finance_employees
+
+
+data_finance_employees = create_data_finance_employees(employees(con, "ТКЗ ИЦ СПБ"))
+print(data_finance_employees)
+
+def create_new_file_finance_employees(data_finance_employees):
+    writer = pd.ExcelWriter(f'Finances employees for {year}.xlsx')
+    data_finance_employees.to_excel(writer, sheet_name='Финансы сотрудников')
+    writer.close()
+
+#create_new_file_finance_employees(data_finance_employees)
+
+def read_file_finance_employees(file):
+    xl = pd.ExcelFile(file)
+    data_finance_employees2 = xl.parse('Финансы сотрудников', index_col=0)
+    return data_finance_employees2
+
+
+print(read_file_finance_employees('Finances employees for 2024.xlsx'))
+
+# print(custom_field_id(con, "Дата трудоустройства"))
+# print(custom_field_id(con, "Ставка"))
+# print(custom_field_id(con, "День рождения"))
 
 
 cursor = con.cursor()
